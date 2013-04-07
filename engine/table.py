@@ -520,21 +520,7 @@ class editor(object):
                     # here we need to consider two parts, table and pinyin
                     # first table
                     if not self._py_mode:
-                        if self.db._is_chinese :
-                            bm_index = self._pt.index('category')
-                            if self._chinese_mode == 0:
-                                # simplify Chinese mode
-                                self._candidates[0] = self.db.select_words(\
-                                        self._tabkey_list, self._onechar, 1 )
-                            elif self._chinese_mode == 1:
-                                # traditional Chinese mode
-                                self._candidates[0] = self.db.select_words(\
-                                        self._tabkey_list, self._onechar, 2 )
-                            else:
-                                self._candidates[0] = self.db.select_words(\
-                                        self._tabkey_list, self._onechar )
-                        else:
-                            self._candidates[0] = self.db.select_words( self._tabkey_list, self._onechar )
+                        self._candidates[0] = self.db.select_words( self._tabkey_list, self._onechar )
                     else:
                         self._candidates[0] = self.db.select_zi( self._tabkey_list )
                     self._chars[2] = self._chars[0][:]
