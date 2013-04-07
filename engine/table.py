@@ -98,49 +98,6 @@ class editor(object):
         self._auto_select = self._config.get_value (self._config_section, "AutoSelect", False)
         if self._auto_select == None:
             self._auto_select = self.db.get_ime_property('auto_select').lower() == u'true'
-        
-        # self._chinese_mode: the candidate filter mode,
-        #   0 is simplify Chinese
-        #   1 is traditional Chinese
-        #   2 is Big charset mode, but simplify Chinese first
-        #   3 is Big charset mode, but traditional Chinese first
-        #   4 is Big charset mode.
-        # we use LC_CTYPE or LANG to determine which one to use
-        self._chinese_mode = self._config.get_value (
-                self._config_section,
-                "ChineseMode",
-                self.get_chinese_mode())
-
-    def get_chinese_mode (self):
-        '''Use LC_CTYPE in your box to determine the _chinese_mode'''
-        try:
-            if os.environ.has_key('LC_CTYPE'):
-                __lc = os.environ['LC_CTYPE'].split('.')[0].lower()
-            else:
-                __lc = os.environ['LANG'].split('.')[0].lower()
-
-            if __lc.find('_cn') != -1:
-                return 0
-            # hk and tw is should use tc as default
-            elif __lc.find('_hk') != -1 or __lc.find('_tw') != -1\
-                    or __lc.find('_mo') != -1:
-                return 1
-            else:
-                if self.db._is_chinese:
-                    # if IME declare as Chinese IME
-                    return 0
-                else:
-                    return -1
-        except:
-            return -1
-
-    def change_chinese_mode (self):
-        if self._chinese_mode != -1:
-            self._chinese_mode = (self._chinese_mode +1 ) % 5
-        self._config.set_value (
-                self._config_section,
-                "ChineseMode",
-                self._chinese_mode )
 
     def clear (self):
         '''Remove data holded'''
@@ -475,25 +432,6 @@ class editor(object):
         self._lookup_table.append_candidate ( ibus.Text(_phrase + _tbks, attrs) )
         self._lookup_table.show_cursor (False)
 
-    def filter_candidates (self, candidates):
-        '''Filter candidates if IME is Chinese'''
-        #if self.db._is_chinese and (not self._py_mode):
-        if not self._chinese_mode in(2,3):
-            return candidates[:]
-        bm_index = self._pt.index('category')
-        if self._chinese_mode == 2:
-            # big charset with SC first
-            return  filter (lambda x: x[bm_index] & 1, candidates)\
-                    +filter (lambda x: x[bm_index] & (1 << 1) and \
-                            (not x[bm_index] & 1), candidates)\
-                    + filter (lambda x: x[bm_index] & (1 << 2), candidates)
-        elif self._chinese_mode == 3:
-            # big charset with SC first
-            return  filter (lambda x: x[bm_index] & (1 << 1), candidates)\
-                    +filter (lambda x: x[bm_index] & 1 and\
-                    (not x[bm_index] & (1<<1)) , candidates)\
-                    + filter (lambda x: x[bm_index] & (1 << 2), candidates)
-
     def update_candidates (self):
         '''Update lookuptable'''
         # first check whether the IME have defined start_chars
@@ -527,8 +465,6 @@ class editor(object):
 
                 else:
                     self._candidates[0] =[]
-                if self._candidates[0]:
-                    self._candidates[0] = self.filter_candidates (self._candidates[0])
                 if self._candidates[0]:
                     map ( self.ap_candidate,self._candidates[0] )
                 else:
@@ -954,8 +890,6 @@ class tabengine (ibus.EngineBase):
     def _init_properties (self):
         self.properties= ibus.PropList ()
         self._status_property = ibus.Property(u'status')
-        if self.db._is_chinese:
-            self._cmode_property = ibus.Property(u'cmode')
         self._letter_property = ibus.Property(u'letter')
         self._punct_property = ibus.Property(u'punct')
         self._py_property = ibus.Property(u'py_mode')
@@ -970,8 +904,6 @@ class tabengine (ibus.EngineBase):
             #self._setup_property
             ):
             self.properties.append(prop)
-        if self.db._is_chinese:
-            self.properties.insert( 1, self._cmode_property )
         self.register_properties (self.properties)
         self._refresh_properties ()
 
@@ -1025,28 +957,6 @@ class tabengine (ibus.EngineBase):
         else:
             self._auto_commit_property.set_icon ( u'%s%s' % (self._icon_dir, 'ncommit.svg' ) ) 
             self._auto_commit_property.set_tooltip ( _(u'Switch to direct commit mode') ) 
-        # the chinese_mode:
-        if self.db._is_chinese:
-            if self._editor._chinese_mode == 0:
-                self._cmode_property.set_icon ( u'%s%s' % (self._icon_dir,\
-                        'sc-mode.svg' ) ) 
-                self._cmode_property.set_tooltip ( _(u'Switch to Traditional Chinese mode') ) 
-            elif self._editor._chinese_mode == 1:
-                self._cmode_property.set_icon ( u'%s%s' % (self._icon_dir,\
-                        'tc-mode.svg' ) ) 
-                self._cmode_property.set_tooltip ( _(u'Switch to Simplify Chinese first Big Charset Mode') ) 
-            elif self._editor._chinese_mode == 2:
-                self._cmode_property.set_icon ( u'%s%s' % (self._icon_dir,\
-                        'scb-mode.svg' ) ) 
-                self._cmode_property.set_tooltip ( _(u'Switch to Traditional Chinese first Big Charset Mode') ) 
-            elif self._editor._chinese_mode == 3:
-                self._cmode_property.set_icon ( u'%s%s' % (self._icon_dir,\
-                        'tcb-mode.svg' ) ) 
-                self._cmode_property.set_tooltip ( _(u'Switch to Big Charset Mode') ) 
-            elif self._editor._chinese_mode == 4:
-                self._cmode_property.set_icon ( u'%s%s' % (self._icon_dir,\
-                        'cb-mode.svg' ) ) 
-                self._cmode_property.set_tooltip ( _(u'Switch to Simplify Chinese Mode') ) 
 
         # use buildin method to update properties :)
         map (self.update_property, self.properties)
@@ -1096,9 +1006,6 @@ class tabengine (ibus.EngineBase):
                 self._config.set_value( self._config_section,
                         "EnDefFullWidthPunct",
                         self._full_width_punct [self._mode])
-        elif property == u'cmode':
-            self._editor.change_chinese_mode()
-            self.reset()
         self._refresh_properties ()
     #    elif property == "setup":
             # Need implementation
@@ -1330,11 +1237,6 @@ class tabengine (ibus.EngineBase):
         # Match direct commit mode switch hotkey
         if self._match_hotkey (key, keysyms.slash, modifier.CONTROL_MASK):
             self.property_activate ( u"acommit" )
-            return True
-
-        # Match Chinese mode shift
-        if self._match_hotkey (key, keysyms.semicolon, modifier.CONTROL_MASK):
-            self.property_activate ( u"cmode" )
             return True
 
         # Match speedmeter shift
