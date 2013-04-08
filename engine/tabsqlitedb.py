@@ -120,12 +120,9 @@ class tabsqlitedb:
         self._is_chinese = self.is_chinese()
         # for fast add word
         self._set_add_phrase_sqlstr()
-        #(ID, MLEN, CLEN, M0, M1, M2, M3, M4, CATEGORY, PHRASE, FREQ, USER_FREQ) = range (0,12)
         self._pt_index = ['id', 'mlen', 'clen']
         for i in range(self._mlen):
             self._pt_index.append ('m%d' %i)
-        if self._is_chinese:
-            self._pt_index += ['category']
         self._pt_index += ['phrase','freq','user_freq']
         self.user_can_define_phrase = self.get_ime_property('user_can_define_phrase')
         if self.user_can_define_phrase:
@@ -297,8 +294,6 @@ class tabsqlitedb:
         #for i in range(self._mlen):
         #    sqlstr += 'm%d INTEGER, ' % i 
         sqlstr += ''.join ( map (lambda x: 'm%d INTEGER, ' % x, range(self._mlen)) )
-        if self._is_chinese:
-            sqlstr += 'category INTEGER, '
         sqlstr += 'phrase TEXT, freq INTEGER, user_freq INTEGER);'
         self.db.execute ( sqlstr )
         self.db.commit()
@@ -325,8 +320,6 @@ class tabsqlitedb:
         self._pt_index = ['id', 'mlen', 'clen']
         for i in range(self._mlen):
             self._pt_index.append ('m%d' %i)
-        if self._is_chinese:
-            self._pt_index += ['category']
         self._pt_index += ['phrase','freq','user_freq']
         self.user_can_define_phrase = self.get_ime_property('user_can_define_phrase')
         if self.user_can_define_phrase:
@@ -441,9 +434,6 @@ class tabsqlitedb:
         mmlen = range(self._mlen)
         sqlstr += ''.join ( map(lambda x: 'm%d, ' %x , mmlen) )
         sql_suffix += ''.join ( map (lambda x: '?, ' , mmlen) )
-        if self._is_chinese:
-            sqlstr += 'category, '
-            sql_suffix += '?, '
         sqlstr += 'phrase, freq, user_freq) '
         sql_suffix += '?, ?, ? );'
         sqlstr += sql_suffix
@@ -459,54 +449,6 @@ class tabsqlitedb:
         except:
             tabkeys,phrase,freq = aphrase
             user_freq = 0
-        # now we will set the category bits if this is chinese
-        if self._is_chinese:
-            # this is the bitmask we will use,
-            # from low to high, 1st bit is simplify Chinese,
-            # 2nd bit is traditional Chinese,
-            # 3rd bit means out of gbk
-            category = 0
-            # make sure that we got a unicode string
-            if type(phrase) != type(u''):
-                phrase = phrase.decode('utf8')
-            tmp_phrase = ''.join(re.findall(u'['
-                                            + u'\u4E00-\u9FCB'
-                                            + u'\u3400-\u4DB5'
-                                            + u'\uF900-\uFaFF'
-                                            + u'\U00020000-\U0002A6D6'
-                                            + u'\U0002A700-\U0002B734'
-                                            + u'\U0002B740-\U0002B81D'
-                                            + u'\U0002F800-\U0002FA1D'
-                                            + u']+',
-                                            phrase))
-            # first whether in gb2312
-            try:
-                tmp_phrase.encode('gb2312')
-                category |= 1
-            except:
-                if '〇'.decode('utf8') in tmp_phrase:
-                    # we add '〇' into SC as well
-                    category |= 1
-            # second check big5-hkscs
-            try:
-                tmp_phrase.encode('big5hkscs')
-                category |= 1 << 1
-            except:
-                # then check whether in gbk,
-                if category & 1:
-                    # already know in SC
-                    pass
-                else:
-                    # need to check
-                    try:
-                        tmp_phrase.encode('gbk')
-                        category |= 1
-                    except:
-                        # not in gbk
-                        pass
-            # then set for 3rd bit, if not in SC and TC
-            if not ( category & (1 | 1 << 1) ):
-                category |= (1 << 2)
         try:
             tbks = self.parse(tabkeys)
             if len(tbks) != len(tabkeys):
@@ -516,9 +458,6 @@ class tabsqlitedb:
             record [0] = len (tabkeys)
             record [1] = len (phrase)
             record [2: 2+len(tabkeys)] = map (lambda x: tbks[x].get_key_id(), range(0,len(tabkeys)))
-            if self._is_chinese:
-                record +=[None]
-                record[-4] = category
             record[-3:] = phrase, freq, user_freq
             self.db.execute (sqlstr % database, record)
             if commit:
@@ -669,13 +608,6 @@ class tabsqlitedb:
         if onechar:
             # for some users really like to select only single characters
             _condition += 'AND clen=1 '
-        if bitmask:
-            # now just the bits for chinese
-            all_ints = xrange(1,5)
-            need_ints = filter (lambda x: x & bitmask, all_ints)
-            bit_condition = 'OR'.join( map(lambda x: ' category = %d ' %x,\
-                    need_ints) )
-            _condition += 'AND (%s) ' % bit_condition
 
         # you can increase the x in _len + x to include more result, but in the most case, we only need one more key result, so we don't need the extra overhead :)
         # we start search for 1 key more, if nothing, then 2 key more and so on
@@ -1009,10 +941,7 @@ class tabsqlitedb:
             #for k in wordattr[2:2+_len]:
             #    tabkey += self.deparse (k)
         
-        if self._is_chinese:
-            sqlstr = 'UPDATE mudb.phrases SET user_freq = ? WHERE mlen = ? AND clen = ? %s AND category = ? AND phrase = ?;'
-        else:
-            sqlstr = 'UPDATE mudb.phrases SET user_freq = ? WHERE mlen = ? AND clen = ? %s AND phrase = ?;'
+        sqlstr = 'UPDATE mudb.phrases SET user_freq = ? WHERE mlen = ? AND clen = ? %s AND phrase = ?;'
         
         try:
             if len(phrase) == 1:
@@ -1120,27 +1049,15 @@ class tabsqlitedb:
         if nn:
             for i in range(nn):
                 _ph.remove(None)
-        if self._is_chinese:
-            msqlstr= 'SELECT * FROM %(database)s.phrases WHERE mlen = ? and clen = ? %(condition)s AND category = ? AND phrase = ? ;' % { 'database':database, 'condition':_condition }
-        else:
-            msqlstr= 'SELECT * FROM %(database)s.phrases WHERE mlen = ? and clen = ? %(condition)s AND phrase = ? ;' % { 'database':database, 'condition':_condition }
+        msqlstr= 'SELECT * FROM %(database)s.phrases WHERE mlen = ? and clen = ? %(condition)s AND phrase = ? ;' % { 'database':database, 'condition':_condition }
         if self.db.execute(msqlstr, _ph[1:]).fetchall():
-            if self._is_chinese:
-                sqlstr = 'DELETE FROM %(database)s.phrases WHERE mlen = ? AND clen =? %(condition)s AND category = ? AND phrase = ?  ;' % { 'database':database, 'condition':_condition }
-            else:
-                sqlstr = 'DELETE FROM %(database)s.phrases WHERE mlen = ? AND clen =? %(condition)s AND phrase = ?  ;' % { 'database':database, 'condition':_condition }
+            sqlstr = 'DELETE FROM %(database)s.phrases WHERE mlen = ? AND clen =? %(condition)s AND phrase = ?  ;' % { 'database':database, 'condition':_condition }
             self.db.execute(sqlstr,_ph[1:])
             self.db.commit()
 
-        if self._is_chinese:
-            msqlstr= 'SELECT * FROM mudb.phrases WHERE mlen = ? and clen = ? %(condition)s AND category = ? AND phrase = ? ;' % { 'condition':_condition }
-        else:
-            msqlstr= 'SELECT * FROM mudb.phrases WHERE mlen = ? and clen = ? %(condition)s AND phrase = ? ;' % { 'condition':_condition }
+        msqlstr= 'SELECT * FROM mudb.phrases WHERE mlen = ? and clen = ? %(condition)s AND phrase = ? ;' % { 'condition':_condition }
         if self.db.execute(msqlstr, _ph[1:]).fetchall():
-            if self._is_chinese:
-                sqlstr = 'DELETE FROM mudb.phrases WHERE mlen = ? AND clen =? %(condition)s AND category = ? AND phrase = ?  ;' % {  'condition':_condition }
-            else:
-                sqlstr = 'DELETE FROM mudb.phrases WHERE mlen = ? AND clen =? %(condition)s AND phrase = ?  ;' % {  'condition':_condition }
+            sqlstr = 'DELETE FROM mudb.phrases WHERE mlen = ? AND clen =? %(condition)s AND phrase = ?  ;' % {  'condition':_condition }
             self.db.execute(sqlstr,_ph[1:])
             self.db.commit()
 

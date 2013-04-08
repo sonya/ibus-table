@@ -77,7 +77,8 @@ opt_parser.add_option( '-e', '--extra',
         help = 'tell me which file is the extra words file for IME, default is %default')
 
 opt_parser.add_option( '-p', '--pinyin',
-        action = 'store', dest='pinyin', default = '/usr/share/ibus-table/data/pinyin_table.txt.bz2',
+        action = 'store', dest='pinyin',
+        default = os.path.dirname(os.path.abspath(__file__)) + '/../data/pinyin_table.txt.bz2',
         help = 'tell me which file is the source file of pinyin, default is %default')
 
 opt_parser.add_option( '-o', '--no-create-index',
